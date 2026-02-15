@@ -158,6 +158,18 @@ class WebRTCConnection {
         };
     }
 
+    // Handle incoming ICE candidates from the viewer
+    async addCandidate(peerId, candidate) {
+        try {
+            const pc = this.peers.connected.get(peerId)?.pc;
+            if (pc && candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        } catch (e) {
+            console.error("Error adding ICE candidate: ", e);
+        }
+    }
+
     // Accepts an answer from a viewer and completes da peer connection
     async acceptAnswer(peerId, answer) {
         const pc = this.peers.connected.get(peerId)?.pc;

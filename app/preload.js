@@ -235,6 +235,7 @@ window.addEventListener('DOMContentLoaded', () => {
         // Send the session response with the offer for the viewer to connect
         if (!handshake) handshake = { sessionId, declined: true }; // decline if error occurred
         await ipcRenderer.invoke('session:response', handshake);
+        updateConnections(); // Refresh UI immediately to move from pending to active
     };
 
     // Declines a viewer's connection request
@@ -455,9 +456,9 @@ window.addEventListener('DOMContentLoaded', () => {
             ipcRenderer.on('session:disconnect', onDisconnect);
             ipcRenderer.on('session:request', onRequest);
             ipcRenderer.on('session:answer', onAnswer);
-            ipcRenderer.on('webrtc:candidate', async (event, candidate) => {
+            ipcRenderer.on('webrtc:candidate', async (event, payload) => {
                 if (connection && connection instanceof WebRTCConnection) {
-                    await connection.acceptAnswer(null, null, candidate); // Overloaded to handle candidates
+                    await connection.addCandidate(payload.viewerId, payload.candidate);
                 }
             });
             return startConnection();

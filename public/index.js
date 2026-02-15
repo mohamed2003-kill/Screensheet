@@ -82,9 +82,10 @@ socket.on('session:offer', async (data) => {
     connect.disabled = false;
 });
 
-socket.on('webrtc:candidate', async (candidate) => {
+socket.on('webrtc:candidate', async (data) => {
     if (connection && connection instanceof WebRTCConnection) {
-        await connection.addCandidate(candidate);
+        // The data contains { sessionId, candidate }. We only need the candidate.
+        await connection.addCandidate(data.candidate);
     }
 });
 
