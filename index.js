@@ -2,34 +2,62 @@ const { screen } = require("@nut-tree-fork/nut-js");
 const { app: electron, BrowserWindow, ipcMain, desktopCapturer, systemPreferences } = require('electron');
 const { pointerEvent, keyboardEvent, scrollEvent } = require('./remote');
 const bcrypt = require('bcryptjs');
-const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const app = express();
-
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const ioClient = require('socket.io-client');
 
 const settingsPath = path.join((electron.isPackaged ? electron.getPath('userData') : __dirname), 'settings.json');
-let activeCode = null;
 let settings;
 let window;
-let server;
+let socket;
 
-let ws = new Set();
+// UPDATE THIS TO YOUR VPS IP/DOMAIN
+const VPS_URL = 'http://217.77.5.245:3001';
 
-electron.commandLine.appendSwitch('enable-logging');
+function connectToRelay() {
+    socket = ioClient(VPS_URL);
 
-async function newServer(port = (settings?.port ?? 3000)) {
-    let restart = false;
+    socket.on('connect', () => {
+        console.log('Connected to Universal Bridge');
+        socket.emit('register-host');
+    });
 
-    if (server) {
-        restart = true;
-        await server.close();
-    }
+    // The Universal Bridge relays EVERYTHING. We catch it all here.
+    socket.onAny((eventName, payload) => {
+        if (!window) return;
+        
+        console.log(`[RELAY] Received event: ${eventName}`);
 
-    server = http.listen(port, () => {
-        console.log(`Server has been ${restart ? 'restarted' : 'started'} on http://localhost:${port}.`);
+        // Map relay events back to the internal Electron names the app expects
+        switch (eventName) {
+            case 'session:request':
+                window.webContents.send('session:request', { 
+                    sessionId: payload.viewerId, 
+                    ip: payload.ip || "Remote Connection", 
+                    auth: payload.auth,
+                    code: payload.code
+                });
+                break;
+            case 'session:answer':
+                // Wrap the received payload back into the structure preload expects
+                window.webContents.send('session:answer', { 
+                    sessionId: payload.viewerId, 
+                    answer: { type: payload.type, sdp: payload.sdp } 
+                });
+                break;
+            case 'webrtc:candidate':
+                window.webContents.send('webrtc:candidate', payload.candidate);
+                break;
+            case 'nutjs:pointer':
+                pointerEvent(payload);
+                break;
+            case 'nutjs:keyboard':
+                keyboardEvent(payload);
+                break;
+            case 'nutjs:scroll':
+                scrollEvent(payload);
+                break;
+        }
     });
 }
 
@@ -59,226 +87,69 @@ function createWindow() {
 }
 
 electron.whenReady().then(async () => {
-    // Check screen recording permission on macOS
     if (process.platform === 'darwin') {
         const permission = systemPreferences.getMediaAccessStatus('screen');
-        
         if (permission !== 'granted') {
-            const granted = await systemPreferences.askForMediaAccess('screen');
-            
-            if (!granted) {
-                console.warn('Screen recording permission has been denied.');
-            }
+            await systemPreferences.askForMediaAccess('screen');
         }
     }
 
     createWindow();
+    connectToRelay();
 
     electron.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow(); // create window if none are open (macos/darwin)
-        }
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
 
 electron.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        electron.quit();
-    }
+    if (process.platform !== 'darwin') electron.quit();
 });
 
-// Returns the available display sources and their dimensions
-ipcMain.handle('display', async (event) => {
+ipcMain.handle('display', async () => {
     try {
-        const display = await desktopCapturer.getSources({ types: ['screen'] });
+        const display = await desktopCapturer.getSources({ types: ['screen', 'window'] });
         const width = await screen.width();
         const height = await screen.height();
-
         return { display, width, height };
     } catch (error) {
         return new Error(error);
     }
 });
 
-ipcMain.handle('stream:frame', async (event, frame) => {
-    for (let socketId of ws) {
-        try {
-            io.to(socketId).volatile.emit('stream:frame', frame);
-        } catch (error) {
-            console.error("Error sending frame to socket ", socketId, ": ", error);
-        }
-    }
-});
-
-// -- Session Management -- //
-
-// Start a new session and generate a new session code
 ipcMain.handle('session:start', async (event) => {
-    activeCode = Math.random().toString(36).substring(2, 10).toUpperCase();
-    return activeCode;
+    return Math.random().toString(36).substring(2, 10).toUpperCase();
 });
 
-// Stop the current session (invalidate the session code)
 ipcMain.handle('session:stop', async (event) => {
-    activeCode = null;
-    ws.clear();
-
     return true;
 });
 
-// Sends session responses from the host to the viewer (accept or decline)
-ipcMain.handle('session:response', async (event, { sessionId, offer, type, declined }) => {
-    try {
-        if (sessionId) {
-            if (offer && !declined) { // accept
-                io.to(sessionId).emit('session:offer', { offer, type });
-            } else { // decline
-                io.to(sessionId).emit('session:offer', { declined: true });
-            }
-        }
-    } catch (error) {
-        console.error("Error sending session response to socket ", sessionId, ": ", error);
-    }
+// Sends responses (offers, etc) back to the relay
+ipcMain.handle('session:response', async (event, payload) => {
+    // payload contains { sessionId, offer, type, declined }
+    console.log(`[REPLY] Sending session response to ${payload.sessionId}`);
+    socket.emit('session:offer', payload);
 });
 
-// Sends a disconnect signal to the viewer to end the session
-ipcMain.handle('session:disconnect', async (event, sessionId) => {
-    if (sessionId) {
-        if (ws.has(sessionId)) {
-            ws.delete(sessionId);
-        }
-
-        try {
-            io.to(sessionId).emit('session:disconnect');
-        } catch (error) {
-            console.error("Error sending disconnect to socket ", sessionId, ": ", error);
-        }
-    }
+ipcMain.handle('webrtc:candidate', async (event, payload) => {
+    socket.emit('webrtc:candidate', payload);
 });
 
-// -- Settings Management -- //
-
-// Load settings from file and return to host
-ipcMain.handle('settings:load', async () => {
-    return settings;
-});
-
-// Update settings file with modified settings from host
+ipcMain.handle('settings:load', async () => settings);
 ipcMain.handle('settings:update', async (event, modified) => {
     try {
-        if (modified?.password && modified.password.length > 0) {
-            modified.password = (await bcrypt.hash(modified.password, 10));
-        }
-
-        const updated = { ...settings, ...modified };
-        fs.writeFileSync(settingsPath, JSON.stringify(updated, null, 4));
-
-        if (modified.port && modified.port !== (settings?.port ?? 3000) && server) {
-            await newServer(modified.port);
-        }
-
-        settings = updated;
+        if (modified?.password) modified.password = await bcrypt.hash(modified.password, 10);
+        settings = { ...settings, ...modified };
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 4));
         return settings;
     } catch (error) {
-        console.error(error);
         return settings;
     }
-});
-
-// -- Express Server -- //
-
-app.set('trust proxy', true);
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Handle new viewer connections to the page
-io.on('connection', (socket) => {
-    const sessionId = socket.id;
-
-    const handleDisconnect = () => {
-        if (ws.has(sessionId)) {
-            ws.delete(sessionId);
-        }
-
-        window.webContents.send('session:disconnect', sessionId);
-    };
-
-    // Repeat session requests from viewers trying to connect to the host
-    socket.on('session:request', async (payload) => {
-        if (!payload || !activeCode || (!payload.code && (!payload.username || !payload.password)) || (payload.username && payload.password && !settings?.login)) return socket.emit('error', 404);
-        if (payload.code && payload.code !== activeCode) return socket.emit('error', 404);
-
-        if (payload.username && payload.password) {
-            const match = await bcrypt.compare(payload.password, settings?.password || '');
-            if (!settings?.username || !settings?.password || !match) return socket.emit('error', 403);
-        }
-
-        // Try Cloudflare header first, then x-forwarded-for, then fallback
-        let ip = socket.handshake.headers['cf-connecting-ip']
-            || (socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim())
-            || socket.handshake.address
-            || "Unknown Connection";
-
-        // Handle ip formatting incl. IPv4-mapped IPv6 addresses
-        if (ip) {
-            ip = ip.trim();
-
-            if (ip.startsWith("::ffff:")) ip = ip.replace("::ffff:", "");
-            if (ip === "::1" || ip === "127.0.0.1") ip = "Local Connection";
-        }
-
-        window.webContents.send('session:request', { sessionId, ip, auth: (payload.username && payload.password) });
-    });
-
-    // Repeat session answers from viewer to host when establishing a connection (AFTER approval)
-    socket.on('session:answer', (answer) => {
-        if (!answer) return;
-        window.webContents.send('session:answer', { sessionId, answer });
-
-        if (answer?.type === 'websocket') {
-            ws.add(sessionId);
-        }
-    });
-
-    socket.on('nutjs:pointer', (data) => {
-        if (!ws.has(sessionId) || !settings.control || !data) return;
-
-        pointerEvent(data);
-    });
-
-    socket.on('nutjs:keyboard', (data) => {
-        if (!ws.has(sessionId) || !settings.control || !data) return;
-
-        keyboardEvent(data);
-    });
-
-    socket.on('nutjs:scroll', (data) => {
-        if (!ws.has(sessionId) || !settings.control || !data) return;
-
-        scrollEvent(data);
-    });
-
-    // Remove peer connection when viewer disconnects
-    socket.on('session:disconnect', handleDisconnect);
-    socket.on('disconnect', handleDisconnect);
 });
 
 (async () => {
-    try {
-        const defaults = { port: 3000, audio: true, control: true, theme: true, method: 'webrtc' };
-        let data;
-
-        if (fs.existsSync(settingsPath)) {
-            const file = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-            data = { ...defaults, ...file }; // apply defaults if missing
-        } else {
-            data = defaults;
-        }
-
-        fs.writeFileSync(settingsPath, JSON.stringify(data, null, 4));
-        settings = data;
-
-        await newServer();
-    } catch (error) {
-        console.error('Error loading settings:', error);
-    }
+    const defaults = { port: 3000, audio: true, control: true, theme: true, method: 'webrtc' };
+    settings = fs.existsSync(settingsPath) ? { ...defaults, ...JSON.parse(fs.readFileSync(settingsPath, 'utf8')) } : defaults;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 4));
 })();

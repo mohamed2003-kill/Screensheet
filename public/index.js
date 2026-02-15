@@ -67,7 +67,7 @@ function errorCode(code) {
 socket.on('error', (code) => { errorCode(code); });
 socket.on('session:offer', async (data) => {
     if (data.declined) return errorCode(403);
-    connection = data.type === 'websocket' ? new WebSocketConnection(socket) : new WebRTCConnection();
+    connection = data.type === 'websocket' ? new WebSocketConnection(socket) : new WebRTCConnection(socket);
 
     const handshake = await connection.acceptOffer(data.offer, onDisconnect);
 
@@ -80,6 +80,12 @@ socket.on('session:offer', async (data) => {
 
     connect.textContent = 'Connect';
     connect.disabled = false;
+});
+
+socket.on('webrtc:candidate', async (candidate) => {
+    if (connection && connection instanceof WebRTCConnection) {
+        await connection.addCandidate(candidate);
+    }
 });
 
 async function startConnection() {

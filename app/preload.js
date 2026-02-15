@@ -200,6 +200,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Approves a viewer's connection request and establishes a peer connection
     async function approve(sessionId) {
+        console.log("Approve button clicked for session:", sessionId);
         if (!connection) return;
         if (!display) {
             await createDisplay();
@@ -454,6 +455,11 @@ window.addEventListener('DOMContentLoaded', () => {
             ipcRenderer.on('session:disconnect', onDisconnect);
             ipcRenderer.on('session:request', onRequest);
             ipcRenderer.on('session:answer', onAnswer);
+            ipcRenderer.on('webrtc:candidate', async (event, candidate) => {
+                if (connection && connection instanceof WebRTCConnection) {
+                    await connection.acceptAnswer(null, null, candidate); // Overloaded to handle candidates
+                }
+            });
             return startConnection();
         },
         stop: async () => {
@@ -473,6 +479,7 @@ window.addEventListener('DOMContentLoaded', () => {
             ipcRenderer.removeListener('session:disconnect', onDisconnect);
             ipcRenderer.removeListener('session:request', onRequest);
             ipcRenderer.removeListener('session:answer', onAnswer);
+            ipcRenderer.removeAllListeners('webrtc:candidate');
             return endConnection();
         },
         copy: async () => {

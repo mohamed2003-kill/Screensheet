@@ -85,10 +85,16 @@ class WebRTCConnection {
         if (!meta) return null;
 
         this.removeOffer(peerId); // remove from wait list
-        this.peers.connected.set(peerId, { pc: new RTCPeerConnection(), meta: { connectedAt: Date.now(), ip: meta?.ip } });
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        this.peers.connected.set(peerId, { pc, meta: { connectedAt: Date.now(), ip: meta?.ip } });
 
-        const pc = this.peers.connected.get(peerId)?.pc;
-        if (!pc) return null;
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                ipcRenderer.invoke('webrtc:candidate', { sessionId: peerId, candidate: event.candidate });
+            }
+        };
 
         const channel = pc.createDataChannel('input');
         channel.onopen = () => {

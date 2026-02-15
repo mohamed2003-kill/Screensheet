@@ -2,16 +2,37 @@ const video_container = document.querySelector('#video-container');
 const video = document.querySelector('#video-container video');
 
 class WebRTCConnection {
-    constructor() {
+    constructor(socket) {
         if (!window.RTCPeerConnection) {
             alert('Whoops, looks like your browser does not support WebRTC! Please try using a different browser (Google Chrome recommended), or a different protocol, such as WebSockets.');
             throw new Error("WebRTC is not supported by this browser.");
         }
 
-        this.pc = new RTCPeerConnection();
+        this.socket = socket;
+        this.pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
         this.screenSize = null;
         this.eventsReady = false;
         this.channel = null;
+
+        // When we generate an ICE candidate, send it to the host via the relay
+        this.pc.onicecandidate = (event) => {
+            if (event.candidate && this.socket) {
+                this.socket.emit('webrtc:candidate', { candidate: event.candidate });
+            }
+        };
+    }
+
+    // Handle incoming ICE candidates from the host
+    async addCandidate(candidate) {
+        try {
+            if (this.pc && candidate) {
+                await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        } catch (e) {
+            console.error("Error adding ICE candidate: ", e);
+        }
     }
 
     // Accepts an offer from a viewer and creates a new peer connection
@@ -89,12 +110,6 @@ class WebRTCConnection {
             this.pc.close();
         }
 
-        if (!window.RTCPeerConnection) {
-            alert('Whoops, looks like your browser does not support WebRTC! Please try using a different browser (Google Chrome recommended), or a different protocol, such as WebSockets.');
-            throw new Error("WebRTC is not supported by this browser.");
-        }
-
-        this.pc = new RTCPeerConnection();
         return true;
     }
 }
