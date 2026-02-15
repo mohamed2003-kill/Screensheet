@@ -35,6 +35,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const loginSettings = document.querySelector('#login_settings');
     const username = loginSettings.querySelector('#username');
     const password = loginSettings.querySelector('#password');
+    const quality = document.querySelector('#quality');
 
     function startConnection() {
         connection = method.value === 'websocket' ? new WebSocketConnection() : new WebRTCConnection();
@@ -162,6 +163,9 @@ window.addEventListener('DOMContentLoaded', () => {
     async function createDisplay() {
         try {
             const screen = await ipcRenderer.invoke('display');
+            const multiplier = parseFloat(quality.value) || 1;
+            const width = Math.floor(screen.width * multiplier);
+            const height = Math.floor(screen.height * multiplier);
 
             display = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -174,10 +178,10 @@ window.addEventListener('DOMContentLoaded', () => {
                         chromeMediaSource: 'desktop',
                         chromeMediaSourceId: screen.display[0].id,
                         frameRate: { min: 15, ideal: 30, max: 60 },
-                        minWidth: screen.width,
-                        minHeight: screen.height,
-                        maxWidth: screen.width,
-                        maxHeight: screen.height,
+                        minWidth: width,
+                        minHeight: height,
+                        maxWidth: width,
+                        maxHeight: height,
                     },
                 },
             });

@@ -168,7 +168,14 @@ const pointerEvent = (event) => {
 
 const keyEvent = (event) => {
     if (!connection || !connection.eventsReady || !connection.screenSize) return;
-    event.preventDefault();
+
+    // Block common browser shortcuts to prevent them from interfering with remote control
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+        const blocked = ['t', 'n', 'w', 'r', 'f', 'p', 's', 'o', 'j', 'h'];
+        if (blocked.includes(event.key.toLowerCase())) {
+            event.preventDefault();
+        }
+    }
 
     try {
         const keyInfo = {
