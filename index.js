@@ -46,7 +46,10 @@ function connectToRelay() {
                 });
                 break;
             case 'webrtc:candidate':
-                window.webContents.send('webrtc:candidate', payload.candidate);
+                window.webContents.send('webrtc:candidate', { 
+                    viewerId: payload.viewerId, 
+                    candidate: payload.candidate 
+                });
                 break;
             case 'nutjs:pointer':
                 pointerEvent(payload);
@@ -123,6 +126,13 @@ ipcMain.handle('session:start', async (event) => {
 
 ipcMain.handle('session:stop', async (event) => {
     return true;
+});
+
+// Sends a disconnect signal to the viewer to end the session
+ipcMain.handle('session:disconnect', async (event, sessionId) => {
+    if (sessionId) {
+        socket.emit('session:disconnect', { sessionId });
+    }
 });
 
 // Sends responses (offers, etc) back to the relay

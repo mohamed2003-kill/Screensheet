@@ -44,6 +44,7 @@ class WebRTCConnection {
 
             video_container.classList.remove('hidden');
             video.srcObject = event.streams[0];
+            video.play().catch(e => console.error("Autoplay prevented:", e));
         };
 
         try {
