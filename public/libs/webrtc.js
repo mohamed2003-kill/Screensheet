@@ -10,7 +10,14 @@ class WebRTCConnection {
 
         this.socket = socket;
         this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                    urls: 'turn:217.77.5.245:3478',
+                    username: 'screensheet',
+                    credential: 'Helloworld'
+                }
+            ]
         });
         this.screenSize = null;
         this.eventsReady = false;

@@ -86,7 +86,14 @@ class WebRTCConnection {
 
         this.removeOffer(peerId); // remove from wait list
         const pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                    urls: 'turn:217.77.5.245:3478',
+                    username: 'screensheet',
+                    credential: 'Helloworld'
+                }
+            ]
         });
         this.peers.connected.set(peerId, { pc, meta: { connectedAt: Date.now(), ip: meta?.ip } });
 

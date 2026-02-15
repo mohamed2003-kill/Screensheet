@@ -142,6 +142,13 @@ ipcMain.handle('session:response', async (event, payload) => {
     socket.emit('session:offer', payload);
 });
 
+// Relay video frames to the VPS (for WebSocket mode)
+ipcMain.handle('stream:frame', async (event, frame) => {
+    if (socket) {
+        socket.emit('stream:frame', frame);
+    }
+});
+
 ipcMain.handle('webrtc:candidate', async (event, payload) => {
     socket.emit('webrtc:candidate', payload);
 });
