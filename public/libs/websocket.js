@@ -1,9 +1,11 @@
 const video_container = document.querySelector('#video-container');
 const video = document.querySelector('#video-container video');
+const canvas = document.querySelector('#video-container canvas');
+const ctx = canvas.getContext('2d');
 
 class WebSocketConnection {
     constructor(socket = null) {
-        if (typeof io !== "function" || !window.MediaSource) {
+        if (typeof io !== "function") {
             alert('Whoops, looks like your browser does not support WebSockets! Please try using a different protocol, such as WebRTC, or use a different browser (Google Chrome recommended).');
             throw new Error("WebSockets are not supported by this browser.");
         }
@@ -29,21 +31,43 @@ class WebSocketConnection {
         this._disconnectHandler = onDisconnect;
 
         try {
-            const mediaSource = new MediaSource();
-            let sourceBuffer = null;
+            if (offer.codec === 'tiled') {
+                video.classList.add('hidden');
+                canvas.classList.remove('hidden');
+                canvas.width = offer.width;
+                canvas.height = offer.height;
 
-            video.src = URL.createObjectURL(mediaSource);
-            mediaSource.addEventListener('sourceopen', () => {
-                if (!offer.codec) return alert('Whoops, looks like your browser does not support the required codec!');
+                this.socket.on('stream:frame', async (frame) => {
+                    if (frame.type === 'tiled') {
+                        frame.tiles.forEach(tile => {
+                            const img = new Image();
+                            img.onload = () => {
+                                ctx.drawImage(img, tile.x, tile.y);
+                            };
+                            img.src = tile.data;
+                        });
+                    }
+                });
+            } else {
+                // Legacy MediaSource handling
+                canvas.classList.add('hidden');
+                video.classList.remove('hidden');
 
-                sourceBuffer = mediaSource.addSourceBuffer(offer.codec);
-            });
+                const mediaSource = new MediaSource();
+                let sourceBuffer = null;
 
-            this.socket.on('stream:frame', async (chunk) => {
-                if (sourceBuffer && !sourceBuffer.updating) {
-                    sourceBuffer.appendBuffer(chunk);
-                }
-            });
+                video.src = URL.createObjectURL(mediaSource);
+                mediaSource.addEventListener('sourceopen', () => {
+                    if (!offer.codec) return alert('Whoops, looks like your browser does not support the required codec!');
+                    sourceBuffer = mediaSource.addSourceBuffer(offer.codec);
+                });
+
+                this.socket.on('stream:frame', async (chunk) => {
+                    if (sourceBuffer && !sourceBuffer.updating) {
+                        sourceBuffer.appendBuffer(chunk);
+                    }
+                });
+            }
 
             this.socket.on('session:disconnect', () => {
                 if (this._disconnectHandler) this._disconnectHandler();

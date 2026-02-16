@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const StreamFrames = require("./frames.js");
+const TiledFrames = require("./tiled-frames.js");
 
 class WebSocketConnection {
     constructor() {
@@ -66,9 +66,9 @@ class WebSocketConnection {
         try {
             const screen = await ipcRenderer.invoke('display');
 
-            this.frames = await StreamFrames.create(screen, async (frame) => {
+            this.frames = await TiledFrames.create(screen, async (frame) => {
                 await ipcRenderer.invoke('stream:frame', frame);
-            }, enableAudio);
+            });
         } catch (error) {
             console.error("An error occurred while starting frame stream: ", error);
             
@@ -83,7 +83,7 @@ class WebSocketConnection {
             offer: {
                 width: screenSize.width,
                 height: screenSize.height,
-                codec: this.frames.codec
+                codec: 'tiled' // Indicate we are using tiled mode
             }
         };
     }
