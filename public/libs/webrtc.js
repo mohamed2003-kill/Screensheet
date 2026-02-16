@@ -26,7 +26,8 @@ class WebRTCConnection {
         // When we generate an ICE candidate, send it to the host via the relay
         this.pc.onicecandidate = (event) => {
             if (event.candidate && this.socket) {
-                this.socket.emit('webrtc:candidate', { candidate: event.candidate });
+                // IMPORTANT: Use toJSON() to avoid serialization issues
+                this.socket.emit('webrtc:candidate', { candidate: event.candidate.toJSON() });
             }
         };
     }

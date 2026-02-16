@@ -207,15 +207,38 @@ const scrollEvent = (event) => {
 };
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-video.addEventListener('loadedmetadata', () => {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    drawFrame();
-});
+
+function startDrawing() {
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        drawFrame();
+    } else {
+        // Retry in 100ms if dimensions aren't available yet
+        setTimeout(startDrawing, 100);
+    }
+}
+
+video.addEventListener('loadedmetadata', startDrawing);
+video.addEventListener('playing', startDrawing);
 
 function drawFrame() {
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    video.requestVideoFrameCallback(drawFrame);
+    if (video.paused || video.ended) return;
+    
+    // Ensure we have dimensions before drawing
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
+
+    if (video.requestVideoFrameCallback) {
+        video.requestVideoFrameCallback(drawFrame);
+    } else {
+        requestAnimationFrame(drawFrame);
+    }
 }
 
 // -- Mouse Input -- //

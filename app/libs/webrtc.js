@@ -1,3 +1,5 @@
+const { ipcRenderer } = require('electron');
+
 class WebRTCConnection {
     constructor() {
         if (!window.RTCPeerConnection) {
@@ -99,7 +101,8 @@ class WebRTCConnection {
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                ipcRenderer.invoke('webrtc:candidate', { sessionId: peerId, candidate: event.candidate });
+                // IMPORTANT: Use toJSON() to avoid "bad IPC message" crash in Electron
+                ipcRenderer.invoke('webrtc:candidate', { sessionId: peerId, candidate: event.candidate.toJSON() });
             }
         };
 

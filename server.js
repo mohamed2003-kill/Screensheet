@@ -6,7 +6,11 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*" } // Allow connections from anywhere
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    },
+    allowEIO3: true // Support older socket.io clients if needed
 });
 
 // Serve the "public" folder (The UI for your phone)
@@ -23,28 +27,65 @@ io.on('connection', (socket) => {
     });
 
     // When the Phone (Viewer) joins
-    socket.on('register-viewer', () => {
-        console.log('Viewer waiting for stream');
-        // Tell the host a viewer is ready
-        io.to('host-room').emit('viewer-connected', socket.id);
+    socket.on('session:request', (data) => {
+        let ip = socket.handshake.address;
+        if (ip.startsWith('::ffff:')) ip = ip.split('::ffff:')[1];
+        
+        console.log('Viewer requesting session:', socket.id, 'from', ip);
+        io.to('host-room').emit('session:request', { 
+            ...data, 
+            viewerId: socket.id, 
+            ip: ip 
+        });
     });
 
-    // Relay WebRTC "Offer" (PC -> Phone)
-    socket.on('offer', (data) => {
-        io.to(data.target).emit('offer', data.payload);
+    // Relay WebRTC "Offer" (Host -> Viewer)
+    socket.on('session:offer', (data) => {
+        console.log('Relaying offer to:', data.sessionId);
+        io.to(data.sessionId).emit('session:offer', data);
     });
 
-    // Relay WebRTC "Answer" (Phone -> PC)
-    socket.on('answer', (data) => {
-        io.to('host-room').emit('answer', data.payload);
+    // Relay WebRTC "Answer" (Viewer -> Host)
+    socket.on('session:answer', (data) => {
+        console.log('Relaying answer from:', socket.id);
+        io.to('host-room').emit('session:answer', { 
+            ...data, 
+            viewerId: socket.id 
+        });
     });
 
     // Relay ICE Candidates (Network paths)
-    socket.on('ice-candidate', (data) => {
-        socket.broadcast.emit('ice-candidate', data);
+    socket.on('webrtc:candidate', (data) => {
+        if (data.sessionId) {
+            io.to(data.sessionId).emit('webrtc:candidate', data);
+        } else {
+            io.to('host-room').emit('webrtc:candidate', { 
+                ...data, 
+                viewerId: socket.id 
+            });
+        }
+    });
+
+    // Relay video frames to the VPS (for WebSocket mode)
+    socket.on('stream:frame', (data) => {
+        // Broadcast frames to all viewers in the room or specific session
+        socket.broadcast.emit('stream:frame', data);
+    });
+
+    socket.on('session:disconnect', (data) => {
+        if (data && data.sessionId) {
+            io.to(data.sessionId).emit('session:disconnect');
+        } else {
+            io.to('host-room').emit('session:disconnect', { viewerId: socket.id });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('User disconnected:', socket.id);
+        io.to('host-room').emit('session:disconnect', { viewerId: socket.id });
     });
 });
 
-server.listen(3001, () => {
+server.listen(3001, '0.0.0.0', () => {
     console.log('Relay server running on port 3001');
 });
